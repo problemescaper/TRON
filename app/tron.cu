@@ -39,6 +39,8 @@
 #include <cuda_runtime.h>
 #include <cuda_profiler_api.h>
 #include "cublas_v2.h"
+#include <iostream>
+#include <cuda/api_wrappers.hpp>
 
 #include "float2math.h"
 #include "ra.h"
@@ -73,6 +75,7 @@ static int skip_angles = 0;        // # of angles to skip at beginning of image 
 static int peoffset = 0;
 static int niter = 0;
 
+static int res_image = 0;
 static int nc;  //  # of receive channels;
 static int nt;  // # of repeated measurements of same trajectory
 static int nro, npe1, npe2, npe1work;//, npe2work;  // radial readout and phase encodes
@@ -621,10 +624,12 @@ tron_shutdown()
 
 
 void
-tron_nufft_adj_radial2d (float2 *d_out, float2 *d_in, const int j)
+tron_nufft_adj_radial2d (float2 *d_out, float2 *d_in, const int j, cuda::event_t& start,
+	cuda::event_t& end)
 {
     // NUFFT adjoint begin
     cudaProfilerStart();
+	start.record();
     precompensate<<<blocks,threads,0,stream[j]>>>(d_in, nc*nt, nro, npe1work);
     gridradial2d<<<blocks,threads,0,stream[j]>>>(d_out, d_in, nxos, nc*nt, nro, npe1work, kernwidth,
         gridos, skip_angles+peoffset, flags.golden_angle);
@@ -633,6 +638,7 @@ tron_nufft_adj_radial2d (float2 *d_out, float2 *d_in, const int j)
     fftshift<<<blocks,threads,0,stream[j]>>>(d_in, d_out, nxos, nc*nt, FFT_SHIFT_FORWARD);
     crop<<<blocks,threads,0,stream[j]>>>(d_out, nx, ny, d_in, nxos, nyos, nc*nt);
     deapodkernel<<<blocks,threads,0,stream[j]>>>(d_out, nx, nc*nt, kernwidth, gridos);
+	end.record();
     cudaProfilerStop();
 }
 
@@ -675,7 +681,6 @@ tron_cgnr_radial2d (float2* d_out, float2 *d_in, const int j, const int niter)
     cublasHandle_t handle;
     cublasStatus_t stat;
     stat = cublasCreate(&handle);
-
     const size_t N = nxos*nxos*nc*nt;
     const size_t n = nro*npe1work*nc*nt;
     cuTry(cudaMalloc((void **)&d_ztilde, d_datasize));
@@ -684,7 +689,7 @@ tron_cgnr_radial2d (float2* d_out, float2 *d_in, const int j, const int niter)
     cuTry(cudaMalloc((void **)&d_ptilde, d_datasize));
     cuTry(cudaMalloc((void **)&d_r, d_datasize));
     copy(d_r, d_in, n, j);
-    tron_nufft_adj_radial2d(d_ztilde, d_in, j); // ztilde = A^H W r
+ //   tron_nufft_adj_radial2d(d_ztilde, d_in, j); // ztilde = A^H W r
     copy(d_ptilde, d_ztilde, N, j); // ptilde = ztilde
     for (int t = 0; t < niter; ++t)
     {
@@ -704,7 +709,7 @@ tron_cgnr_radial2d (float2* d_out, float2 *d_in, const int j, const int niter)
 
         cublasScnrm2(handle, N, (cuComplex*)d_ztilde, inc, &res1); // res1 = ||ztilde||
         copy(d_u[j], d_r, n, j); // u = r
-        tron_nufft_adj_radial2d(d_ztilde, d_u[j], j); // ztilde = A^H W r
+      //  tron_nufft_adj_radial2d(d_ztilde, d_u[j], j); // ztilde = A^H W r
         cublasScnrm2(handle, N, (cuComplex*)d_ztilde, inc, &res2); // res2 = || ztilde||
         beta = res2 / res1;
         Caxpy<<<blocks,threads,0,stream[j]>>>(d_ptilde, d_ztilde, d_ptilde, beta, N); // ptilde = ztilde + beta*ptilde
@@ -728,6 +733,11 @@ recon_radial2d (float2 *h_outdata, const float2 *__restrict__ h_indata)
 {
     DPRINT("recon_radial2d\n");
     tron_init();
+	auto device = cuda::device::current::get();
+	auto start = cuda::event::create(device);
+	auto pre_cc = cuda::event::create(device);
+	auto post_cc = cuda::event::create(device);
+	auto end = cuda::event::create(device);
 
     for (int z = 0; z < nz; ++z)
     {
@@ -753,15 +763,34 @@ recon_radial2d (float2 *h_outdata, const float2 *__restrict__ h_indata)
         if (flags.adjoint) {  // process data resident on GPU
             if (niter > 0)
                 tron_cgnr_radial2d (d_v[j], d_u[j], j, niter);
-            else
-                tron_nufft_adj_radial2d(d_v[j], d_u[j], j);
+            else{
+				auto do_run = [&]() {
+			 tron_nufft_adj_radial2d(d_v[j], d_u[j], j, start, pre_cc);
+		};
+		for (int i = 0; i < 50; ++i) {
+			do_run();
+		}
+
+		do_run();
+
+			}
         } else
             tron_nufft_radial2d(d_v[j], d_u[j], j);
 
 
         if (flags.adjoint)  // send result back to CPU
         {
-            coilcombinesos<<<blocks,threads,0,stream[j]>>>(d_u[j], d_v[j], nx, nc); 
+			post_cc.record();
+            coilcombinesos<<<blocks,threads,0,stream[j]>>>(d_u[j], d_v[j], nx, nc);
+			end.record();
+			device.synchronize();
+			const auto kernel_time1 =
+		    cuda::event::time_elapsed_between(start, end).count();
+
+			const auto kernel_time2 = cuda::event::time_elapsed_between(post_cc,end).count();
+			const auto kernel_time = kernel_time1 + kernel_time2;
+			std::cout << "kernel_time: " << kernel_time << std::endl;
+
             // TODO: look at nc to decide whether to coil combine and by how much (can compress)
             //coilcombinewalsh<<<blocks,threads,0,stream[j]>>>(d_u[j],d_v[j], nx, nc, nt, 1); /* 0 works, 1 good, 3 better */
 #ifdef CUDA_HOST_MALLOC
@@ -909,11 +938,13 @@ main (int argc, char *argv[])
         nro = ra_in.dims[2];
         npe1 = ra_in.dims[3];
         npe2 = ra_in.dims[4];
+
         nx = nro / 2;
         ny = nro / 2;
         nxos = nx * gridos;
         nyos = ny * gridos;
-        if (npe1 <= nro * data_undersamp)  /* must be implicitly undersampled */
+
+		if (npe1 <= nro * data_undersamp)  /* must be implicitly undersampled */
             npe1work = npe1;
         else
             npe1work = nro * data_undersamp;
@@ -961,6 +992,8 @@ main (int argc, char *argv[])
     }
     ra_out.size = h_outdatasize;
     assert(nc % 2 == 0 || nc == 1); // only single or even dimensions implemented for now
+	std::cout << "res_kspace: " << nxos << std::endl;
+	std::cout << "kernel_width: " << kernwidth << std::endl;
 
 #ifdef CUDA_HOST_MALLOC
     // allocate pinned memory, which allows async calls

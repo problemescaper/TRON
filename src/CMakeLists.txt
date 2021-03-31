@@ -10,6 +10,7 @@ cmake_minimum_required(VERSION 3.17)
 find_package(CMakeshift 3.7 REQUIRED)
 find_package(gsl-lite 0.35.3 REQUIRED)
 find_package(CUDAToolkit REQUIRED)
+find_package(cuda-api-wrappers REQUIRED)
 
 
 # TODO: add more package dependencies here
@@ -39,7 +40,8 @@ target_link_libraries(tron
 	PUBLIC
         gsl::gsl-lite-v1
 		CUDA::cufft
-		CUDA::cublas)
+		CUDA::cublas
+		cuda-api-wrappers::cuda-api-wrappers)
 # installation: public header files, target
 install(
     DIRECTORY
