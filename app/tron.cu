@@ -225,10 +225,10 @@ powit (float2 *A, const int n, const int niters)
     /* replace first column of square matrix A with largest eigenvector */
     float2 x[MAXCHAN], y[MAXCHAN];
     for (int k = 0; k < n; ++k)
-        x[k] = make_float2(1.f, 0.f);
+        x[k] = make_float2(1.f, 0.f); //initize with (1,0)
     for (int t = 0; t < niters; ++t) {
         for (int j = 0; j < n; ++j) {
-            y[j] = make_float2(0.f,0.f);
+            y[j] = make_float2(0.f,0.f); // initialize with (0.0)
             for (int k = 0; k < n; ++k)
                y[j] += A[j*n + k]*x[k];
         }
@@ -253,7 +253,7 @@ powit (float2 *A, const int n, const int niters)
 }
 
 __global__ void
-coilcombinesos (float2 *img, const float2 * __restrict__ coilimg, const int nimg, const int nchan)
+coilcombinesos (float2 *img, const float2 * __restrict__ coilimg, const int nimg, const int nchan) //used method!!
 {
     for (int id = blockIdx.x * blockDim.x + threadIdx.x; id < nimg*nimg; id += blockDim.x * gridDim.x) {
         if (nchan > 1) {
@@ -330,7 +330,7 @@ kernel_shape (const float kernwidth, const float gridos)
     return M_PI*sqrtf(a*a*b*b - 0.8f);
 #else
     //return M_PI*(2.f - 1.f/gridos);
-    return 2.34f*2.0f*kernwidth;
+    return 2.34f*2.0f*kernwidth; // beta = 4.68w
 #endif
 }
 
@@ -343,25 +343,25 @@ gridkernel (const float x, const float kernwidth, const float sigma)
   if (fabsf(x) < kernwidth) {
       float r = x/kernwidth;
       float f = sqrtf(1.0f - r*r);
-      return 0.5f*besseli0(beta*f)/kernwidth;
+      return 0.5f*besseli0(beta*f)/kernwidth; // gridding function
   } else
       return 0.0f;
 }
 
 __device__ inline float
-gridkernelhat (const float u, const float kernwidth, const float sigma)
+gridkernelhat (const float u, const float kernwidth, const float sigma) //deapodization kernel \frac{sinc(\sqrt{(2\pi w x)^2 - \beta^2)})}{\sqrt{(2\pi w x)^2 - \beta^2)} where x \elem [-1/2, 1/2]
 {
     // u in [-1/sigma,1/sigma]
-    float J = 2.0f*kernwidth;
-    float beta = kernel_shape(kernwidth, sigma);
-    float r = M_PI*J*u;
-    float q = r*r - beta*beta;
+    float J = 2.0f*kernwidth; //factor 2w // why no pi here?
+    float beta = kernel_shape(kernwidth, sigma); //again find beta
+    float r = M_PI*J*u; 
+    float q = r*r - beta*beta; // whats under the square root
     float y, z;
     if (q > 0) {
         z = sqrtf(q);
-        y = sinf(z) / z;
+        y = sinf(z) / z; //final result
     } else if (q < 0) {
-        z = sqrtf(-q);
+        z = sqrtf(-q); // no imaginary calues
         y = sinhf(z) / z;
     } else
         y = 1;
