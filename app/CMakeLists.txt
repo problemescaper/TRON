@@ -10,7 +10,7 @@ set_target_properties(tron-cli PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 set_target_properties(tron-cli PROPERTIES CUDA_ARCHITECTURES 61)
 
 target_link_libraries(
-  tron-cli PUBLIC tron Boost::filesystem Boost::program_options
+	tron-cli PUBLIC TRON Boost::filesystem Boost::program_options
                     gsl::gsl-lite
 )
 endif()
