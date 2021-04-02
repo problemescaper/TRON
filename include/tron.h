@@ -40,13 +40,10 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "float2math.h"
 #include "ra.h"
 
 // CONFIGURATION PARAMETERS
 // TODO: softcode as many as possible
-#define NSTREAMS 1
-#define MULTI_GPU 0
 #define NCHAN 30
 #define MAXCHAN 30
 // static int threads = 96;    // TWEAK: CUDA kernel parameters, optimize for
@@ -55,14 +52,16 @@
 extern "C" {  // don't mangle name, so can call from other languages
 
 /* grid a single 2D image from input radial data */
-__global__ void gridradial2d(float2 *udata, const float2 *__restrict__ nudata,
+__global__ void gridradial2d(thrust::complex<float> *udata,
+			     const thrust::complex<float> *__restrict__ nudata,
 			     const int ngrid, const int nchan, const int nro,
 			     const int npe, const float kernwidth,
 			     const float grid_oversamp, const int skip_angles,
 			     const int flag_golden_angle);
 
 /*  generate 2D radial data from an input 2D image */
-__global__ void degridradial2d(float2 *nudata, const float2 *__restrict__ udata,
+__global__ void degridradial2d(thrust::complex<float> *nudata,
+			       const thrust::complex<float> *__restrict__ udata,
 			       const int nimg, const int nchan, const int nro,
 			       const int npe, const float kernwidth,
 			       const float gridos, const int skip_angles,
@@ -71,11 +70,13 @@ __global__ void degridradial2d(float2 *nudata, const float2 *__restrict__ udata,
 /*  Reconstruct images from 2D radial data.  This host routine calls the
    appropriate CUDA kernels in the correct order depending on the direction of
    recon.   */
-__host__ void recon_radial_2d(float2 *h_outdata,
-			      const float2 *__restrict__ h_indata);
+__host__ void recon_radial_2d(
+    thrust::complex<float> *h_outdata,
+    const thrust::complex<float> *__restrict__ h_indata);
 
-void tron_nufft_adj_radial2d(float2 *d_out, float2 *d_in, const int j,
-			     float2 *img_tmp);
+void tron_nufft_adj_radial2d(thrust::complex<float> *d_out,
+			     thrust::complex<float> *d_in,
+			     thrust::complex<float> *img_tmp);
 
 void tron_init();
 void tron_shutdown();
