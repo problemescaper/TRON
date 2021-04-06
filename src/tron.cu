@@ -40,10 +40,8 @@
 #include <cuda_profiler_api.h>
 #include "cublas_v2.h"
 #include <iostream>
-#include <cuda/api_wrappers.hpp>
 #include <thrust/complex.h>
 
-#include "ra.h"
 #include "tron.h"
 
 #define MAX(a,b) ((a)>(b)?(a):(b))
@@ -62,21 +60,14 @@ static int blocks = 4096;
 // DEFAULT RECON CONFIGURATION
 static float gridos = 2.f;  // TODO: compute ngrid from nx, ny and oversamp
 static float kernwidth = 2.f;
-static float data_undersamp = 1.f;
 
-static int prof_slide = 0;         // # of profiles to slide through the data between reconstructed images
 static int skip_angles = 0;        // # of angles to skip at beginning of image stack
 static int peoffset = 0;
-static int niter = 0;
 
 static int nro = 256;
 static int npe1work = 256;
-static int nx = 256;
 static int nc = 30;
 static int nt = 1;
-static int ny = 256;
-static int nxos = 512;
-static int nyos = 512;
 static struct {
     unsigned adjoint       : 1;
     unsigned deapodize     : 1;
@@ -356,12 +347,12 @@ gridradial2d (thrust::complex<float> *udata, const thrust::complex<float> * __re
     const int nchan, const int nro, const int npe, const float kernwidth, const float gridos,
 const int skip_angles, const int flag_golden_angle)
 {
+	// This seems to prepare for 2D blocking but does not use it in the end??
     // udata: [NCHAN x NGRID x NGRID], nudata: NCHAN x NRO x NPE
     thrust::complex<float> utmp[MAXCHAN];
     const int blocksx = 4; // TODO: optimize this blocking
     const int blocksy = 4;
     const int warpsize = blocksx*blocksy;
-    int nblockx = nxos / blocksx;
     int nblocky = nxos / blocksy; // # of blocks along y dimension
 
     for (int tid = blockIdx.x * blockDim.x + threadIdx.x; tid < nxos * nxos; tid += blockDim.x * gridDim.x)
@@ -429,53 +420,27 @@ const int skip_angles, const int flag_golden_angle)
 
 
 void
-tron_init ()
+tron_init (int res_kspace)
 {
-    DPRINT("Kernels configured with %d blocks of %d threads\n", threads, blocks);
-	std::cout << "nro: " << nro << std::endl;
-	std::cout << "npe1work: " << npe1work << std::endl;
-        fft_init(&fft_plan_os, nxos, nyos, nc);
-	std::cout << "Done TRON Init " << std::endl;
+    fft_init(&fft_plan_os, res_kspace, res_kspace, nc);
 }
 
-void
-tron_shutdown()
-{
-    DPRINT("freeing device memory ... ");
-    DPRINT("done.\n");
-}
 
 // need to resort data for channels
 void
-tron_nufft_adj_radial2d (thrust::complex<float> *channel_images, thrust::complex<float> *domain_values, float *img, thrust::complex<float> *cropped_images, thrust::complex<float> *tmp_buffer, thrust::complex<float> *tmp_buffer_2)
+tron_nufft_adj_radial2d (thrust::complex<float> *channel_images, thrust::complex<float> *domain_values, float *img, thrust::complex<float> *cropped_images, thrust::complex<float> *tmp_buffer, int res_image, int os)
 {
-	auto device = cuda::device::current::get();
 
     // NUFFT adjoint begin
     precompensate<<<blocks,threads>>>(domain_values, nc*nt, nro, npe1work);
-    gridradial2d<<<blocks,threads>>>(channel_images, domain_values, nxos, nc*nt, nro, npe1work, kernwidth,
+    gridradial2d<<<blocks,threads>>>(channel_images, domain_values, res_image*os, nc*nt, nro, npe1work, kernwidth,
         gridos, skip_angles+peoffset, flags.golden_angle);
-	device.synchronize();
-	float sum_1 = 0;
-	for (int i = 0; i < 30 * 512 * 512; ++i){
-		sum_1 += thrust::norm(channel_images[i]);
-	}
-	float sum_2 = 0;
-	for (int i = 0; i < 30 * 256 * 256; ++i){
-		sum_2 += thrust::norm(domain_values[i]);
-	}
-
-	std::cout << "Sum Channel Images: " << sum_1 << std::endl;
-	std::cout << "Sum Domain values: " << sum_2 << std::endl;
-    fftshift<<<blocks,threads>>>(tmp_buffer, channel_images, nxos, nt*nc, FFT_SHIFT_INVERSE);
-	std::cout << "Pre FFT" << std::endl;
+    fftshift<<<blocks,threads>>>(tmp_buffer, channel_images, res_image*os, nt*nc, FFT_SHIFT_INVERSE);
     cufftSafeCall(cufftExecC2C(fft_plan_os, reinterpret_cast<cufftComplex*>(tmp_buffer), reinterpret_cast<cufftComplex*>(tmp_buffer), CUFFT_INVERSE));
-	std::cout << "Post FFT" << std::endl;
-    fftshift<<<blocks,threads>>>(channel_images, tmp_buffer, nxos, nc*nt, FFT_SHIFT_FORWARD);
-    crop<<<blocks,threads>>>(cropped_images, nx, ny, channel_images, nxos, nyos, nc*nt);
-    deapodkernel<<<blocks,threads>>>(cropped_images, nx, nc*nt, kernwidth, gridos);
-	std::cout << "Done Deapod" << std::endl;
-	coilcombinesos<<<blocks,threads>>>(img, cropped_images, nx, nc);
+    fftshift<<<blocks,threads>>>(channel_images, tmp_buffer, res_image*os, nc*nt, FFT_SHIFT_FORWARD);
+    crop<<<blocks,threads>>>(cropped_images, res_image, res_image, channel_images, res_image*os, res_image*os, nc*nt);
+    deapodkernel<<<blocks,threads>>>(cropped_images, res_image, nc*nt, kernwidth, gridos);
+	coilcombinesos<<<blocks,threads>>>(img, cropped_images, res_image, nc);
 }
 
 

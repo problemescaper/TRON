@@ -77,10 +77,9 @@ __host__ void recon_radial_2d(
 void tron_nufft_adj_radial2d(thrust::complex<float> *d_out,
 			     thrust::complex<float> *d_in, float *img,
 			     thrust::complex<float> *cropped_images,
-			     thrust::complex<float> *tmp_buffer,
-			     thrust::complex<float> *tmp_buffer_2);
+			     thrust::complex<float> *tmp_buffer, int res_image,
+			     int os);
 
-void tron_init();
-void tron_shutdown();
+void tron_init(int res_kspace);
 }
 #endif /* _TRON_H */

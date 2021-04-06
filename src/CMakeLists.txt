@@ -10,7 +10,6 @@ cmake_minimum_required(VERSION 3.17)
 find_package(CMakeshift 3.7 REQUIRED)
 find_package(gsl-lite 0.35.3 REQUIRED)
 find_package(CUDAToolkit REQUIRED)
-find_package(cuda-api-wrappers REQUIRED)
 
 
 # TODO: add more package dependencies here
@@ -20,7 +19,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
 find_package(FFTW REQUIRED)
 
 # targets
-	add_library(TRON tron.cu ra.cu float16.cu) # TODO: add more source files here
+	add_library(TRON tron.cu) # TODO: add more source files here
 set_target_properties(TRON PROPERTIES CUDA_ARCHITECTURES 61)
 
 # library properties
@@ -40,8 +39,7 @@ target_link_libraries(TRON
 	PUBLIC
         gsl::gsl-lite-v1
 		CUDA::cufft
-		CUDA::cublas
-		cuda-api-wrappers::cuda-api-wrappers)
+		CUDA::cublas)
 # installation: public header files, target
 install(
     DIRECTORY
