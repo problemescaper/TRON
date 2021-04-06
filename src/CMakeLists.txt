@@ -33,7 +33,7 @@ target_compile_features(TRON
 	#PROPERTIES
 	#    CUDA_STANDARD 14)
 
-
+target_compile_options(TRON PRIVATE -O3 -Wno-deprecated-gpu-targets --use_fast_math -D_FORCE_INLINES -DCUDA_HOST_MALLOC)
 # library dependencies
 target_link_libraries(TRON
 	PUBLIC
