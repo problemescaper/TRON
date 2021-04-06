@@ -199,12 +199,15 @@ __global__ void
 coilcombinesos (float *img, const thrust::complex<float> * __restrict__ coilimg, const int nimg, const int nchan) //used method!!
 {
     for (int id = blockIdx.x * blockDim.x + threadIdx.x; id < nimg*nimg; id += blockDim.x * gridDim.x) {
+        if (nchan > 1) {
           float val = 0.f;
-          /*for (int c = 0; c < nchan; ++c){
+          for (int c = 0; c < nchan; ++c)
               val += thrust::norm(coilimg[nchan*id + c]);
-		  }*/
+          img[id] = sqrtf(val);
+        } else
           img[id] = thrust::norm(coilimg[id]);
     }
+
 }
 
 
@@ -394,7 +397,7 @@ const int skip_angles, const int flag_golden_angle)
 
         for (int pe = 0; pe < npe; ++pe)
         {
-            float t = modang(PHI * float(pe + skip_angles));
+            float t = modang((pe + 1) * PHI) + M_PI/2;
             float st, ct;
             __sincosf(t, &st, &ct);
             for (int r = Rlo; r <= Rhi; ++r)  // aligned profiles
